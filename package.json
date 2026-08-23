@@ -1,6 +1,6 @@
 {
   "name": "astro-llms-md",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "Generate llms.txt, llms-full.txt, and individual markdown files from your Astro site with this Astro integration",
   "type": "module",
   "main": "./dist/index.js",
@@ -21,7 +21,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "npm run build && node --test"
   },
   "keywords": [
     "astro-component",

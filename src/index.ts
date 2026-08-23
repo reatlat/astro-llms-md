@@ -226,6 +226,53 @@ export function getContentElement(
   return el;
 }
 
+function isHeaderRow(row: HTMLTableRowElement): boolean {
+  return Array.from(row.childNodes).every((cell) => cell.nodeName === "TH");
+}
+
+function cellText(cell: ChildNode): string {
+  return (cell.textContent || "").trim().replace(/\s+/g, " ").replace(/\|/g, "\\|");
+}
+
+// Turndown has no built-in table support. Rather than pull in
+// turndown-plugin-gfm for a handful of addRule() calls we already have the
+// API for, convert tables directly. Handles two shapes:
+//  - a real header row (every cell in row 0 is <th>) -> a GFM pipe table
+//  - no header row (e.g. a spec table using <th scope="row"> + <td> per
+//    row) -> a flat "label: value" list, since a pipe table would
+//    misrepresent it and turndown-plugin-gfm's own rule just leaves tables
+//    like this as unconverted raw HTML
+function addTableRule(turndownService: TurndownService): void {
+  turndownService.addRule("table", {
+    filter: "table",
+    replacement: (_content, node) => {
+      const rows = Array.from((node as HTMLTableElement).rows);
+      if (rows.length === 0) return "";
+
+      if (isHeaderRow(rows[0])) {
+        const headerCells = Array.from(rows[0].childNodes);
+        const header = `| ${headerCells.map(cellText).join(" | ")} |`;
+        const divider = `| ${headerCells.map(() => "---").join(" | ")} |`;
+        const body = rows
+          .slice(1)
+          .map((row) => `| ${Array.from(row.childNodes).map(cellText).join(" | ")} |`)
+          .join("\n");
+        return `\n\n${[header, divider, body].filter(Boolean).join("\n")}\n\n`;
+      }
+
+      const lines = rows
+        .map((row) => {
+          const cells = Array.from(row.childNodes).map(cellText).filter(Boolean);
+          if (cells.length === 0) return "";
+          const [label, ...rest] = cells;
+          return `- ${label.replace(/:\s*$/, "")}: ${rest.join(" ")}`;
+        })
+        .filter(Boolean);
+      return `\n\n${lines.join("\n")}\n\n`;
+    },
+  });
+}
+
 export async function processHtml(
   html: string,
   llmsConfig?: LlmsInternalConfig,
@@ -250,6 +297,7 @@ export async function processHtml(
       codeBlockStyle: "fenced",
       bulletListMarker: "-",
     });
+    addTableRule(turndownService);
 
     turndownService.addRule("removeChrome", {
       filter: ["nav", "footer", "header", "aside"],
