@@ -273,6 +273,49 @@ function addTableRule(turndownService: TurndownService): void {
   });
 }
 
+const BLOCK_LEVEL_ELEMENTS = [
+  "ADDRESS", "ARTICLE", "ASIDE", "BLOCKQUOTE", "DD", "DIV", "DL", "DT",
+  "FIELDSET", "FIGCAPTION", "FIGURE", "FORM", "H1", "H2", "H3", "H4", "H5",
+  "H6", "HEADER", "HGROUP", "LI", "OL", "P", "PRE", "SECTION", "TABLE", "UL",
+];
+
+// Collects visible text, inserting a space at block boundaries so
+// "<h3>Hi</h3><p>d</p>" becomes "Hi d" rather than "Hid".
+function flattenText(node: ChildNode): string {
+  if (node.nodeType === 3) return node.textContent || "";
+  const inner = Array.from(node.childNodes).map(flattenText).join("");
+  return BLOCK_LEVEL_ELEMENTS.includes(node.nodeName) ? ` ${inner} ` : inner;
+}
+
+// A valid-in-HTML <a> can wrap block elements (a heading card, a whole
+// section). Block rules inside it inject newlines into the link text, which
+// most markdown renderers then refuse to parse as a link at all. Emit a
+// single inline link with flattened plain text instead.
+// Mirrors turndown's own inline-link escaping for href/title.
+function addBlockInLinkRule(turndownService: TurndownService): void {
+  turndownService.addRule("linkWithBlocks", {
+    filter: (node) =>
+      node.nodeName === "A" &&
+      !!node.getAttribute("href") &&
+      Array.from(node.querySelectorAll("*")).some((el) =>
+        BLOCK_LEVEL_ELEMENTS.includes(el.nodeName),
+      ),
+    replacement: (_content, node) => {
+      const text = flattenText(node)
+        .replace(/\s+/g, " ")
+        .trim()
+        .replace(/([\\[\]])/g, "\\$1");
+      if (!text) return "";
+      let href = (node.getAttribute("href") || "").replace(/([<>()])/g, "\\$1");
+      if (href.includes(" ")) href = `<${href}>`;
+      const title = (node.getAttribute("title") || "")
+        .replace(/(\n+\s*)+/g, "\n")
+        .replace(/"/g, '\\"');
+      return `[${text}](${href}${title ? ` "${title}"` : ""})`;
+    },
+  });
+}
+
 export async function processHtml(
   html: string,
   llmsConfig?: LlmsInternalConfig,
@@ -298,6 +341,7 @@ export async function processHtml(
       bulletListMarker: "-",
     });
     addTableRule(turndownService);
+    addBlockInLinkRule(turndownService);
 
     turndownService.addRule("removeChrome", {
       filter: ["nav", "footer", "header", "aside"],
